@@ -31,9 +31,16 @@
 #define buzzer_port PORTC
 #define buzzer_pin 5
 
-#define adc_filter 250   // 125000/13=9615 (have_adc per sec)
+
+//#define CHECK_ADC
+
+
 #define button_delay1 5769 // 600/1000*9615   // 600ms 
 #define button_delay2 1442 // 150/1000*9615   // 150ms          
+
+#define FIRST_ADC_INPUT 0
+#define LAST_ADC_INPUT 0
+unsigned char adc_data[LAST_ADC_INPUT-FIRST_ADC_INPUT+1];
 
 unsigned char have_adc=0;
 unsigned char button=0;                           
@@ -130,6 +137,15 @@ void update_numbers(void){
     n[1]=hh0-n[0]*10;
     n[2]=mm0/10;
     n[3]=mm0-n[2]*10;
+
+
+#ifdef CHECK_ADC
+    unsigned char value=adc_data[0];
+    n[3]=value%10;
+    n[2]=(value%100)/10;
+    n[1]=value/100;
+    n[0]=0;
+#endif
 
     // LED names:
     //
@@ -275,9 +291,6 @@ ISR(TIMER2_COMP_vect){
     timer2comp_func();
 }
 
-#define FIRST_ADC_INPUT 0
-#define LAST_ADC_INPUT 0
-unsigned char adc_data[LAST_ADC_INPUT-FIRST_ADC_INPUT+1];
 #define ADC_VREF_TYPE 0x20
 
 // ADC interrupt service routine
@@ -302,49 +315,61 @@ ISR(ADC_vect)
 }
 
 unsigned char check_buttons(void){
-    unsigned char adc_now;
-    static unsigned char adc_prev;
+
+#define filetr_max_power_of_two 8   // maximum is 8 for 2^8=256 => ~25ms  // 125000/13=9615 (have_adc per sec)
+
     static unsigned int filter_count=0;
-    adc_now=adc_data[0];
-    if(adc_now>adc_prev+1 || adc_now<adc_prev-1 || adc_now<10){
-        //        if(adc_now!=adc_prev || adc_now<10){
-        //                adc_prev=adc_now;
-        if(adc_now>adc_prev){adc_prev++;}
-        else if(adc_now<adc_prev){adc_prev--;}
+    static unsigned int filter_sum=0;
+    filter_sum+=adc_data[0];
+    filter_count++;
+    static unsigned char filtered_res=0;
+    static unsigned char prev_res=0;
+    if(filter_count>=(1<<filetr_max_power_of_two)){
+        unsigned char adc_filtered=filter_sum>>filetr_max_power_of_two;
+        filter_sum=0;
         filter_count=0;
-        return 0;
-    }else{
-        filter_count++;
-        if(filter_count>=adc_filter){
-            filter_count--;
-            if(adc_now<31){
-                return 1;
-            }else if(adc_now<51){
-                return 2;
-            }else if(adc_now<71){
-                return 3;
-            }else if(adc_now<91){
-                return 4;
-            }else if(adc_now<111){
-                return 5;
-            }else if(adc_now<131){
-                return 6;
-            }else if(adc_now<151){
-                return 7;
-            }else if(adc_now<173){
-                return 8;
-            }else if(adc_now<195){
-                return 9;
-            }else if(adc_now<218){
-                return 10;
-            }else{
-                return 11;
-            }
+
+        unsigned char res=0;
+        if(adc_filtered<10){
+            res=0;
+        }else if(adc_filtered<31){
+            res=1;
+        }else if(adc_filtered<51){
+            res=2;
+        }else if(adc_filtered<71){
+            res=3;
+        }else if(adc_filtered<91){
+            res=4;
+        }else if(adc_filtered<111){
+            res=5;
+        }else if(adc_filtered<131){
+            res=6;
+        }else if(adc_filtered<151){
+            res=7;
+        }else if(adc_filtered<173){
+            res=8;
+        }else if(adc_filtered<195){
+            res=9;
+        }else if(adc_filtered<218){
+            res=10;
         }else{
-            return 0;
+            // >= 218
+            res=11;
+        }
+        static unsigned char res_filter_count=0;
+        if(prev_res!=res){
+            prev_res=res;
+            filtered_res=0;
+            res_filter_count=0;
+        }else{
+            if(res_filter_count<4){  // additional 4 times filter to get 100ms filtering
+                res_filter_count++;
+            }else{
+                filtered_res=res;
+            }
         }
     }
-
+    return filtered_res;
 }
 
 // Declare your global variables here
@@ -364,13 +389,15 @@ int main(void)
     TCNT0=0x00;
 
     TCCR1A=0x00;
-    TCCR1B=0x0C;
+    TCCR1B=0x0C;    // WGM12=1, CS12=1 - CTC mode (top=OCR1A), prescaler=1/256, We have 8 Mhz crystal, clock = 31250 hz
     TCNT1H=0x00;
     TCNT1L=0x00;
     ICR1H=0x00;
     ICR1L=0x00;
+    // 31250 hz = 0x7a12. It goes faster ~1 minute per 3 days, so we increase it (for seconds to be longer) to 31257 (0x7a19)
     OCR1AH=0x7A;
-    OCR1AL=0x12;
+    OCR1AL=0x19;
+
     OCR1BH=0x00;
     OCR1BL=0x00;
 
