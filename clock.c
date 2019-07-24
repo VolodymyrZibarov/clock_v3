@@ -87,20 +87,15 @@ void stop_mel(void){
 }
 
 void timer0ovf_func(){
-    static unsigned char dign=0,dighalf=0;
-    dighalf++;
-    if(dighalf>4){
-        dighalf=0;
-        dign++;
-        if(dign>3){
-            dign=0;
-        }
+    static unsigned char dign=0;
+    dign++;
+    if(dign>3){
+        dign=0;
     }
     PORTD=0xff;
     PORTB&=0xf0;
     PORTB|=(1<<dign);
-    if(dighalf==0){PORTD=~(digs[dign]&0x0f);}
-    else if(dighalf==1){PORTD=~(digs[dign]&0xf0);}
+    PORTD=~digs[dign];
 }
 
 ISR(TIMER0_OVF_vect)
